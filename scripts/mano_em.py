@@ -9,7 +9,8 @@ from tqdm import tqdm
 
 sys.path.append(".")
 # from src.utils.reader_v2 import Reader
-from src.utils.reader import Reader
+# from src.utils.reader import Reader
+from src.utils.image_reader import Reader
 import src.utils.params as param_utils
 from src.utils.parser import add_common_args
 from src.utils.cameras import removed_cameras, map_camera_names, get_projections
@@ -33,8 +34,6 @@ parser.add_argument("--to_smooth", action="store_true", help="Whether to tempora
 parser.add_argument("--use_filtered", action="store_true", help="Whether to use only filtered keypoints (binned)")
 parser.add_argument('--remove_side_cam', type=bool, default=True, help='Remove Side Cameras')
 parser.add_argument('--remove_bottom_cam', type=bool, default=True, help='Remove Bottom Cameras')
-parser.add_argument('--sample_fps', type=int, default=None, help='FPS to sample frames')
-parser.add_argument('--frame_count', type=int, default=None, help='Number of frames to sample from the video')
 # Easy Mocap Arguments
 parser.add_argument('--body', type=str, default='body25', choices=['body15', 'body25', 'h36m', 'bodyhand', 'bodyhandface', 'handl', 'handr', 'handlr', 'total'])
 parser.add_argument('--model', type=str, default='smpl', choices=['smpl', 'smplh', 'smplx', 'manol', 'manor'])
@@ -68,7 +67,7 @@ else:
     params_txt = "params.txt"
 
 base_path = os.path.join(args.root_dir)
-image_dir = os.path.join(base_path, args.seq_path, "data", "synced")
+image_dir = os.path.join(base_path, args.seq_path, "data", "image")
 output_path = args.out_dir
 params_path = os.path.join(output_path, params_txt)
 
@@ -111,8 +110,10 @@ else:
 for selected_vid_idx in selected_vid_idxs:
     print(f'Video ID {selected_vid_idx}...')
     # reader = Reader("video", image_dir, cams_to_remove=cams_to_remove, ith=selected_vid_idx, anchor_camera=anchor_camera_by_length if args.ith==-1 else args.anchor_camera)
-    reader = Reader("video", image_dir, cams_to_remove=cams_to_remove, undistort=True, cam_path=params_path, sample_fps=args.sample_fps, frame_count=args.frame_count)
-    if reader.target_frames <= 0:
+    # reader = Reader("video", image_dir, cams_to_remove=cams_to_remove, undistort=True, cam_path=params_path, sample_fps=args.sample_fps, frame_count=args.frame_count)
+    reader = Reader(image_dir, undistort=True, cam_path=params_path, cams_to_remove=cams_to_remove, start_frame=args.start, end_frame=args.end)
+
+    if reader.frame_count <= 0:
         continue
     
     keypoints2d_dir_right = os.path.join(output_path, "keypoints_2d", "right", str(selected_vid_idx).zfill(3))
@@ -136,20 +137,15 @@ for selected_vid_idx in selected_vid_idxs:
         chosen_frames = range(args.start, args.end, args.stride)
 
     chosen_frames = sorted(chosen_frames)
-    print(f"Total valid frames {len(chosen_frames)}/{reader.target_frames}")
+    print(f"Total valid frames {len(chosen_frames)}/{reader.frame_count}")
     
     cam_mapper = map_camera_names(keypoints2d_dir_right, cam_names)
-    extra_cams_to_remove = reader.to_delete
-    cur_cam_names = cam_names.copy()
-    for cam in extra_cams_to_remove:
-        if cam in cur_cam_names:
-            cur_cam_names.remove(cam)
-    intrs, projs, dist_intrs, dists, cameras = get_projections(args, params, cur_cam_names, cam_mapper, easymocap_format=True)
+    intrs, projs, dist_intrs, dists, cameras = get_projections(args, params, reader.views, cam_mapper, easymocap_format=True)
 
     # loads 2d & 3d keypoints
     all_keypoints2d_left, all_keypoints2d_right = [], []
     all_bboxes_left, all_bboxes_right = [], []
-    for cam in cur_cam_names:
+    for cam in reader.views:
         if cam in cam_mapper:
             keypoints2d_left = []
             keypoints2d_right = []
@@ -278,7 +274,7 @@ for selected_vid_idx in selected_vid_idxs:
             for abs_idx, (frames, idx) in tqdm(enumerate(reader(chosen_frames)), total=len(chosen_frames)):
                 images = []
                 c_idx = 0
-                for cam in cur_cam_names:
+                for cam in reader.views:
                     if cam in cam_mapper:
                         image = frames[cam_mapper[cam]]
                         if args.undistort:

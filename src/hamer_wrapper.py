@@ -13,7 +13,7 @@ from hamer.datasets.utils import (convert_cvimg_to_tensor,
 
 DEFAULT_MEAN = 255. * np.array([0.485, 0.456, 0.406])
 DEFAULT_STD = 255. * np.array([0.229, 0.224, 0.225])
-HAMER_CKPT_PATH = '/users/axing2/data/users/axing2/hand_pose_estimation/assets/hamer_ckpts/checkpoints/hamer.ckpt'
+HAMER_CKPT_PATH = '/users/axing2/data/users/axing2/pose_estimation/assets/hamer_ckpts/checkpoints/hamer.ckpt'
 
 class ViTDetDataset(torch.utils.data.Dataset):
 

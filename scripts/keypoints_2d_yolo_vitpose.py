@@ -15,8 +15,7 @@ from collections import defaultdict
 
 import sys
 sys.path.append(".")
-# from src.utils.reader_v2 import Reader
-from src.utils.reader import Reader
+from src.utils.image_reader import Reader
 from src.utils.video_handler import frame_preprocess
 from src.utils.cameras import removed_cameras, map_camera_names, get_projections
 import src.utils.params as param_utils
@@ -170,8 +169,6 @@ def main():
     parser.add_argument('--remove_side_cam', type=bool, default=True, help='Remove Side Cameras')
     parser.add_argument('--remove_bottom_cam', type=bool, default=True, help='Remove Bottom Cameras')
     parser.add_argument('--use_hamer', type=bool, default=False, help='YOLO -> ViTPose -> Hamer pipeline')
-    parser.add_argument('--sample_fps', type=int, default=None, help='Sample FPS')
-    parser.add_argument('--frame_count', type=int, default=None, help='Number of frames to sample from the video')
     args = parser.parse_args()
 
     # Setup HaMeR model
@@ -186,7 +183,7 @@ def main():
         hamer_model = hamer_model.to(device)
         hamer_model.eval()
 
-    input_path = os.path.join(args.root_dir, args.seq_path, "data", "synced")
+    input_path = os.path.join(args.root_dir, args.seq_path, "data", "image")
 
     if args.use_optim_params:
         params_txt = "optim_params.txt"
@@ -252,35 +249,25 @@ def main():
         os.makedirs(output_bbx_right_path, exist_ok=True)
 
         # Get files to process
-        # reader = Reader(args.input_type, input_path, cams_to_remove=cams_to_remove, ith=selected_vid_idx, anchor_camera=anchor_camera_by_length if args.ith==-1 else args.anchor_camera)
-        reader = Reader("video", input_path, cams_to_remove=cams_to_remove, undistort=True, cam_path=params_path, sample_fps=args.sample_fps, frame_count=args.frame_count)
-        if reader.target_frames <= 0:
+        reader = Reader(input_path, undistort=True, cam_path=params_path, cams_to_remove=cams_to_remove, start_frame=args.start, end_frame=args.end)
+
+        if reader.frame_count <= 0:
             continue
         
-        extra_cams_to_remove = reader.to_delete
-        cur_cam_names = cam_names.copy()
-
-        for cam in extra_cams_to_remove:
-            if cam in cur_cam_names:
-                cur_cam_names.remove(cam)
-        print("Total Views:", len(cur_cam_names))
-        print("Total frames:", reader.target_frames)
+        print("Total Views:", len(reader.views))
+        print("Total frames:", reader.frame_count)
         
-        intrs, projs, dist_intrs, dists, cameras = get_projections(args, params, cur_cam_names, cam_mapper, easymocap_format=True)
-        print("Total cams:", len(intrs), len(dist_intrs), len(dists))
-        print("Reader Length", len(reader.vids))
+        print("Reader Length", len(reader.views))
 
         # Detect 2D Keypoints for all valid views
         time_list = []
-        for v_idx, input_video_path in tqdm(enumerate(reader.vids), total=len(reader.vids)):
-            im_names, orig_imgs, im_h, im_w = frame_preprocess(input_video_path, args.undistort, intrs[v_idx], dist_intrs[v_idx], dists[v_idx], args.sample_fps, args.frame_count)
+        for v_idx, input_view in tqdm(enumerate(reader.views), total=len(reader.views)):
+            im_names, orig_imgs, im_h, im_w = reader.get_frames(input_view)
             
-            video_name = input_video_path.split('/')[-1].split('.')[0]
-            
-            output_kps_left_file_path = f"{output_kps_left_path}/{video_name}.jsonl"
-            output_bbx_left_file_path = f"{output_bbx_left_path}/{video_name}.jsonl"
-            output_kps_right_file_path = f"{output_kps_right_path}/{video_name}.jsonl"
-            output_bbx_right_file_path = f"{output_bbx_right_path}/{video_name}.jsonl"                
+            output_kps_left_file_path = f"{output_kps_left_path}/{input_view}.jsonl"
+            output_bbx_left_file_path = f"{output_bbx_left_path}/{input_view}.jsonl"
+            output_kps_right_file_path = f"{output_kps_right_path}/{input_view}.jsonl"
+            output_bbx_right_file_path = f"{output_bbx_right_path}/{input_view}.jsonl"                
             
             start_time = time.time()
             with open(output_kps_left_file_path, 'w') as kps_left_f, open(output_bbx_left_file_path, 'w') as bbx_left_f, open(output_kps_right_file_path, 'w') as kps_right_f, open(output_bbx_right_file_path, 'w') as bbx_right_f:

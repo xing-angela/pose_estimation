@@ -16,7 +16,8 @@ from natsort import natsorted
 
 sys.path.append(".")
 # from src.utils.reader_v2 import Reader
-from src.utils.reader import Reader
+# from src.utils.reader import Reader
+from src.utils.image_reader import Reader
 import src.utils.params as param_utils
 from src.utils.parser import add_common_args
 from src.utils.cameras import removed_cameras, map_camera_names, get_projections
@@ -38,13 +39,11 @@ parser.add_argument("--easymocap", default=False, action="store_true", help='use
 parser.add_argument('--remove_side_cam', type=bool, default=True, help='Remove Side Cameras')
 parser.add_argument('--remove_bottom_cam', type=bool, default=True, help='Remove Bottom Cameras')
 parser.add_argument("--ignore_missing_tip", action="store_true", help="Should a missing fingertip be allowed")
-parser.add_argument('--sample_fps', type=int, default=None, help='FPS to sample frames')
-parser.add_argument('--frame_count', type=int, default=None, help='Number of frames to sample from the video')
 args = parser.parse_args()
 
 
 base_path = os.path.join(args.root_dir)
-image_base = os.path.join(base_path, args.seq_path, "data", "synced")
+image_base = os.path.join(base_path, args.seq_path, "data", "image")
 # image_base = os.path.join(base_path)
 output_path = args.out_dir
 # Loads the camera parameters
@@ -104,19 +103,13 @@ for selected_vid_idx in selected_vid_idxs:
     cam_mapper = map_camera_names(keypoints2d_dir_right, cam_names)
 
     # Get files to process
-    # reader = Reader(args.input_type, image_base, cams_to_remove=cams_to_remove, ith=selected_vid_idx, anchor_camera=anchor_camera_by_length if args.ith==-1 else args.anchor_camera)
-    reader = Reader("video", image_base, cams_to_remove=cams_to_remove, undistort=True, cam_path=params_path, sample_fps=args.sample_fps, frame_count=args.frame_count)
-    if reader.target_frames <= 0:
+    reader = Reader(image_base, undistort=True, cam_path=params_path, cams_to_remove=cams_to_remove, start_frame=args.start, end_frame=args.end)
+    if reader.frame_count <= 0:
         continue
         
-    extra_cams_to_remove = reader.to_delete
-    cur_cam_names = cam_names.copy()
-    for cam in extra_cams_to_remove:
-        if cam in cur_cam_names:
-            cur_cam_names.remove(cam)
-    print("Total Views:", len(cur_cam_names))
-    print("Total frames", reader.target_frames)
-    intrs, projs, dist_intrs, dists, cameras = get_projections(args, params, cur_cam_names, cam_mapper, easymocap_format=True)
+    print("Total Views:", len(reader.views))
+    print("Total frames", reader.frame_count)
+    intrs, projs, dist_intrs, dists, cameras = get_projections(args, params, reader.views, cam_mapper, easymocap_format=True)
     
     keypoints3d_dir = os.path.join(output_path, "keypoints_3d", str(selected_vid_idx).zfill(3))
     try:
@@ -127,13 +120,13 @@ for selected_vid_idx in selected_vid_idxs:
 
 
     if (args.all_frames):
-        chosen_frames = range(0, reader.target_frames, 1)
+        chosen_frames = range(0, reader.frame_count, 1)
     else:
         chosen_frames = range(args.start, args.end, args.stride)
 
     all_keypoints2d_left = []
     all_keypoints2d_right = []
-    for cam in cur_cam_names:
+    for cam in reader.views:
         if cam in cam_mapper:
             keypoints2d_left = []
             keypoints2d_right = []
@@ -162,7 +155,7 @@ for selected_vid_idx in selected_vid_idxs:
     print(f"Writing 3D keypoints to {keypt_file_left}")
     print(f"Writing 3D keypoints to {keypt_file_right}")
     with open(keypt_file_left, "w") as fl, open(keypt_file_right, "w") as fr:
-        for l_idx in tqdm(range(reader.target_frames), total=reader.target_frames):
+        for l_idx in tqdm(range(reader.frame_count), total=reader.frame_count):
             if l_idx in chosen_frames:
                 keypoints2d_left = all_keypoints2d_left[:, l_idx, :, :]
                 keypoints2d_right = all_keypoints2d_right[:, l_idx, :, :]
