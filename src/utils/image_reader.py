@@ -16,6 +16,7 @@ class Reader():
             cams_to_remove=[],
             start_frame: int = 0,
             end_frame: int = None,
+            extn: str = "jpg"
     ):
         self.path = path
         self.undistort = undistort
@@ -23,6 +24,7 @@ class Reader():
         self.end_frame = end_frame
         self.cameras = param_utils.read_params(cam_path) if self.undistort else None
         self.frame_count = int(1e9)
+        self.extn = extn
 
         self.views = []
         for cam in os.listdir(path):
@@ -32,14 +34,14 @@ class Reader():
         
         self.curr_frame = start_frame
         if self.frame_count <= 0 or self.frame_count > 1e8:
-            raise ValueError("frame count is more than 1e8, no videos loaded!")
+            raise ValueError("frame count is more than 1e8, no views loaded!")
         
 
     def init_views(self):
         if self.end_frame:
             frame_count = self.end_frame - self.start_frame
         else:
-            frame_count = len(glob(os.path.join(self.path, self.views[0], "*.jpg")))
+            frame_count = len(glob(os.path.join(self.path, self.views[0], f"*.{self.extn}")))
         self.frame_count = min(self.frame_count, frame_count)
 
     
@@ -53,8 +55,8 @@ class Reader():
         for view in self.views:
             idx = np.where(self.cameras[:]['cam_name']==view)[0][0]
             cam = self.cameras[idx]
-            frame_path = os.path.join(self.path, view, f"{self.curr_frame:08d}.jpg")
-            frame = cv2.imread(frame_path)
+            frame_path = os.path.join(self.path, view, f"{self.curr_frame:08d}.{self.extn}")
+            frame = cv2.cvtColor(cv2.imread(frame_path, cv2.IMREAD_UNCHANGED), cv2.COLOR_BGRA2RGBA)
 
             if self.undistort:
                 K, dist = param_utils.get_intr(cam)
