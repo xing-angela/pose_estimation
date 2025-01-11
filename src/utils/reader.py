@@ -69,9 +69,9 @@ class Reader():
                 raise RuntimeError(f"Couldn't retrieve frame from {cam_name}")
 
             if self.undistort: 
-                idx = np.where(self.cameras[:]['cam_name']==cam_name)[0][0]
+                idx = np.where(self.cameras[:]['cam_name']==cam_name[:21])[0][0]
                 cam = self.cameras[idx]
-                assert (cam['cam_name'] == cam_name)
+                assert (cam['cam_name'] == cam_name[:21])
                 extr = param_utils.get_extr(cam)
                 K, dist = param_utils.get_intr(cam)
                 new_K, roi = param_utils.get_undistort_params(K, dist, (frame.shape[1], frame.shape[0]))
@@ -105,6 +105,7 @@ class Reader():
                 frame_count = int(duration_seconds * self.sample_fps)
 
             self.frame_count = min(self.frame_count, frame_count)
+            # cam_name = vid.split("/")[-2]
             cam_name = os.path.basename(vid).split(".")[0]
             self.streams[cam_name] = cap
             

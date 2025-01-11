@@ -22,7 +22,7 @@ import shutil
 from sklearn.cluster import DBSCAN
 from collections import Counter
 
-def add_npg_parser(parser):
+def add_ngp_parser(parser):
     parser.add_argument("--network", type=str, required=False, default='./data/nerf_base.json')
     parser.add_argument("--action", type=str, default="")
     parser.add_argument("--cam_traj_path", type=str, default="")
@@ -612,7 +612,7 @@ def get_test_renders(
     return cached_frames
 
 
-def clean_mesh(mesh_path, largest_component=True):
+def clean_mesh(mesh_path, save_obj=False, largest_component=True):
     import pymeshlab
 
     ms = pymeshlab.MeshSet()
@@ -621,11 +621,45 @@ def clean_mesh(mesh_path, largest_component=True):
     ms.meshing_remove_connected_component_by_face_number(mincomponentsize=100)
     if largest_component:
         ms.generate_splitting_by_connected_components()
-        max_face_num = max(ms[i].face_number() for i in range(1, ms.number_meshes()))
-        for i in range(1, ms.number_meshes()):
+        max_face_num = max(ms[i].face_number() for i in range(1, ms.mesh_number()))
+        for i in range(1, ms.mesh_number()):
             if ms[i].face_number() == max_face_num:
                 ms.set_current_mesh(i)
-    ms.save_current_mesh(mesh_path)
+    
+    # smooth and simplify the mesh
+    ms.apply_filter("generate_surface_reconstruction_screened_poisson",
+            samplespernode=15,
+            pointweight=5,
+            preclean=True)
+    ms.apply_filter("meshing_decimation_quadric_edge_collapse",
+            targetfacenum=25000,
+            preserveboundary=True,
+            preservenormal=True,
+            preservetopology=True)
+
+    if save_obj:
+        text_name = os.path.basename(mesh_path.replace(".ply", ".png"))
+        ms.apply_filter("compute_texcoord_by_function_per_vertex")
+        ms.apply_filter("compute_texcoord_transfer_vertex_to_wedge")
+        ms.apply_filter('compute_texcoord_parametrization_triangle_trivial_per_wedge',
+                sidedim=0,
+                textdim=4096,
+                border=2,
+                method='Basic') 
+        ms.apply_filter('compute_texmap_from_color',
+                textname=text_name,
+                textw=4096,
+                texth=4096,
+                pullpush=True)
+        # ensures mesh center is at the origin
+        ms.apply_filter("compute_matrix_from_translation", 
+                traslmethod="Center on Scene BBox")
+        ms.save_current_mesh(mesh_path.replace(".ply", ".obj"), save_textures=True)
+    else:
+        # ensures mesh center is at the origin
+        ms.apply_filter("compute_matrix_from_translation", 
+                traslmethod="Center on Scene BBox")
+        ms.save_current_mesh(mesh_path)
 
 
 def clean_density(density_path):

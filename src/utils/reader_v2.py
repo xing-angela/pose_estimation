@@ -1,6 +1,6 @@
 import cv2
 import os
-import ffmpeg
+# import ffmpeg
 import numpy as np
 from glob import glob
 from natsort import natsorted
@@ -19,7 +19,7 @@ def find_closest_video(folder, anchor_timestamp):
     closest_video = None
 
     for filename in os.listdir(folder):
-        if filename.endswith('.mp4'):
+        if filename.endswith('.avi'):
             video_timestamp = parse_timestamp(filename)
             time_diff = abs(video_timestamp - anchor_timestamp)
             
@@ -48,14 +48,14 @@ class Reader():
             self.streams = {}
             self.vids = []
             if anchor_camera:
-                mp4_list = natsorted(glob(f"{path}/{anchor_camera}/*.mp4"))
+                mp4_list = natsorted(glob(f"{path}/{anchor_camera}/*.avi"))
                 if len(mp4_list) > self.ith:
-                    self.vids.append(natsorted(glob(f"{path}/{anchor_camera}/*.mp4"))[self.ith])
+                    self.vids.append(natsorted(glob(f"{path}/{anchor_camera}/*.avi"))[self.ith])
             else:
                 for cam in os.listdir(path):
                     if 'imu' not in cam and 'mic' not in cam and len(glob(f"{path}/{cam}/*.mp4")) > self.ith:
                         if cam not in cams_to_remove:
-                            self.vids.append(natsorted(glob(f"{path}/{cam}/*.mp4"))[self.ith])
+                            self.vids.append(natsorted(glob(f"{path}/{cam}/*.avi"))[self.ith])
                     if len(self.vids) > 0:
                         break
             self.anchor_timestamp = parse_timestamp(self.vids[0])
@@ -119,7 +119,8 @@ class Reader():
                 ith: the ith video in each folder will be processed."""
         for vid in self.vids:
             cap = cv2.VideoCapture(vid)
-            frame_count = int(ffmpeg.probe(vid, cmd="ffprobe")["streams"][0]["nb_frames"])
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            # frame_count = int(ffmpeg.probe(vid, cmd="ffprobe")["streams"][0]["nb_frames"])
             self.frame_count = min(self.frame_count, frame_count)
             cam_name = os.path.basename(vid).split(".")[0]
             self.streams[cam_name] = cap
