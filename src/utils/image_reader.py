@@ -26,10 +26,10 @@ class Reader():
         self.frame_count = int(1e9)
         self.extn = extn
 
-        self.views = []
+        self.vids = []
         for cam in os.listdir(path):
             if cam not in cams_to_remove:
-                self.views.append(cam)
+                self.vids.append(cam)
         self.init_views()
         
         self.curr_frame = start_frame
@@ -41,7 +41,7 @@ class Reader():
         if self.end_frame:
             frame_count = self.end_frame - self.start_frame
         else:
-            frame_count = len(glob(os.path.join(self.path, self.views[0], f"*.{self.extn}")))
+            frame_count = len(glob(os.path.join(self.path, self.vids[0], f"*.{self.extn}")))
         self.frame_count = min(self.frame_count, frame_count)
 
     
@@ -52,7 +52,7 @@ class Reader():
             return {}
 
         frames = {}
-        for view in self.views:
+        for view in self.vids:
             idx = np.where(self.cameras[:]['cam_name']==view)[0][0]
             cam = self.cameras[idx]
             frame_path = os.path.join(self.path, view, f"{self.curr_frame:08d}.{self.extn}")

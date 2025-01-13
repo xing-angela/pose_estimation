@@ -8,6 +8,7 @@ from typing import Dict, Iterable, Generator, Tuple
 import json
 import ipdb
 import datetime
+from src.utils import params as param_utils
 
 def parse_timestamp(filename):
     # Strip the extension and parse the remaining part as a datetime
@@ -33,7 +34,18 @@ class Reader():
     iterator = []
 
     def __init__(
-            self, inp_type: str, path: str, undistort: bool=False, cams_to_remove=[], ith: int=0, start_frame_path=None, anchor_camera=None
+            self, 
+            inp_type: str, 
+            path: str, 
+            undistort: bool=False, 
+            cam_path: str = None,
+            cams_to_remove=[], 
+            ith: int=0, 
+            start_frame: int=0, 
+            end_frame: int=-1,
+            start_frame_path=None, 
+            anchor_camera=None,
+            extn: str='jpg',
         ):
         """ith: the ith video in each folder will be processed."""
         self.type = inp_type
@@ -43,28 +55,39 @@ class Reader():
         self.path = path
         self.cams_to_remove = cams_to_remove
         self.to_delete = []
+        self.start_frame = start_frame
+        self.end_frame = end_frame
+        self.extn = extn
+        self.undistort = undistort
+        self.cameras = param_utils.read_params(cam_path) if self.undistort else None
         
         if self.type == "video":
+            self.views = []
             self.streams = {}
-            self.vids = []
             if anchor_camera:
                 mp4_list = natsorted(glob(f"{path}/{anchor_camera}/*.avi"))
                 if len(mp4_list) > self.ith:
-                    self.vids.append(natsorted(glob(f"{path}/{anchor_camera}/*.avi"))[self.ith])
+                    self.views.append(natsorted(glob(f"{path}/{anchor_camera}/*.avi"))[self.ith])
             else:
                 for cam in os.listdir(path):
                     if 'imu' not in cam and 'mic' not in cam and len(glob(f"{path}/{cam}/*.mp4")) > self.ith:
                         if cam not in cams_to_remove:
-                            self.vids.append(natsorted(glob(f"{path}/{cam}/*.avi"))[self.ith])
-                    if len(self.vids) > 0:
+                            self.views.append(natsorted(glob(f"{path}/{cam}/*.avi"))[self.ith])
+                    if len(self.views) > 0:
                         break
-            self.anchor_timestamp = parse_timestamp(self.vids[0])
+            self.anchor_timestamp = parse_timestamp(self.views[0])
             self.check_timestamp()
-            self.init_videos()
+            self.init_views()
             if start_frame_path:
                 with open(start_frame_path, 'r') as file:
                     start_frames = json.load(file)
                 self.start_frames = start_frames
+        elif self.type == "image":
+            self.views = []
+            for cam in os.listdir(path):
+                if cam not in cams_to_remove:
+                    self.views.append(cam)
+            self.init_views()
         else:
             pass
 
@@ -83,26 +106,37 @@ class Reader():
             return {}
 
         frames = {}
-        for cam_name, cam_cap in self.streams.items():
-            if self.start_frames:
-                start_frame = self.start_frames.get(cam_name, [0, 0])[0]
-            else:
-                start_frame = 0
-            cam_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx + start_frame)
-            suc, frame = cam_cap.read()
-            if not suc:
-                raise RuntimeError(f"Couldn't retrieve frame from {cam_name}")
-            frames[cam_name] = frame
-        
+        if self.type ==  "video":
+            for cam_name, cam_cap in self.streams.items():
+                if self.start_frames:
+                    start_frame = self.start_frames.get(cam_name, [0, 0])[0]
+                else:
+                    start_frame = 0
+                cam_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx + start_frame)
+                suc, frame = cam_cap.read()
+                if not suc:
+                    raise RuntimeError(f"Couldn't retrieve frame from {cam_name}")
+                frames[cam_name] = frame
+        elif self.type == "image":
+            for view in self.views:
+                idx = np.where(self.cameras[:]['cam_name']==view)[0][0]
+                cam = self.cameras[idx]
+                frame_path = os.path.join(self.path, view, f"{self.curr_frame:08d}.{self.extn}")
+                frame = cv2.cvtColor(cv2.imread(frame_path, cv2.IMREAD_UNCHANGED), cv2.COLOR_BGRA2RGBA)
+
+                if self.undistort:
+                    K, dist = param_utils.get_intr(cam)
+                    new_K, roi = param_utils.get_undistort_params(K, dist, (frame.shape[1], frame.shape[0]))
+                    frame = param_utils.undistort_image(K, new_K, dist, frame)
+                frame[view] = frame
         return frames
 
     def check_timestamp(self):
-        
         for cam in os.listdir(self.path):
-            if 'imu' not in cam and 'mic' not in cam and cam not in self.cams_to_remove and cam not in self.vids[0]:
+            if 'imu' not in cam and 'mic' not in cam and cam not in self.cams_to_remove and cam not in self.views[0]:
                 closest_file, time_diff = find_closest_video(f"{self.path}/{cam}", self.anchor_timestamp)
                 if closest_file:
-                    self.vids.append(f"{self.path}/{cam}/{closest_file}")
+                    self.views.append(f"{self.path}/{cam}/{closest_file}")
                 else:
                     self.to_delete.append(cam.split('/')[-1].rsplit('_', 0)[0])
             
@@ -114,18 +148,27 @@ class Reader():
 
         self.cur_frame = 0
 
-    def init_videos(self):
+    def init_views(self):
         """ Create video captures for each video
                 ith: the ith video in each folder will be processed."""
-        for vid in self.vids:
-            cap = cv2.VideoCapture(vid)
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            # frame_count = int(ffmpeg.probe(vid, cmd="ffprobe")["streams"][0]["nb_frames"])
+        if self.type == "video":
+            for vid in self.views:
+                cap = cv2.VideoCapture(vid)
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                # frame_count = int(ffmpeg.probe(vid, cmd="ffprobe")["streams"][0]["nb_frames"])
+                self.frame_count = min(self.frame_count, frame_count)
+                cam_name = os.path.basename(vid).split(".")[0]
+                self.streams[cam_name] = cap
+                
+            self.frame_count -= 5 # To account for the last few frames that are corrupted
+        elif self.type == "image":
+            if self.end_frame > 0:
+                frame_count = self.end_frame - self.start_frame
+            else:
+                frame_count = len(glob(os.path.join(self.path, self.views[0], f"*.{self.extn}")))
             self.frame_count = min(self.frame_count, frame_count)
-            cam_name = os.path.basename(vid).split(".")[0]
-            self.streams[cam_name] = cap
-            
-        self.frame_count -= 5 # To account for the last few frames that are corrupted
+        else:
+            pass
 
     def release_videos(self):
         for cap in self.streams.values():
@@ -146,8 +189,24 @@ class Reader():
         # Reinitialize the videos
         self.reinit()
 
-if __name__ == "__main__":
-    reader = Reader("video", "/hdd_data/common/BRICS/hands/peisen/actions/abduction_adduction/", 5, 16, 3)
-    for i in range(len(reader)):
-        frames, frame_num = reader.get_frames()
-        print(frame_num)
+    def get_image_frames(self, view, undistort=False, intr=None, dist_intr=None, dist=None, target_fps=None, target_frames=None):
+        orig_imgs = []
+        im_names = []
+
+        frames = glob(os.path.join(self.path, view, "*.jpg"))
+
+        if self.end_frame:
+            frames = frames[self.start_frame:self.end_frame]
+        else:
+            frames = frames[self.start_frame:]
+
+        for frame_path in frames:
+            frame = cv2.imread(frame_path)
+            if undistort:
+                frame = cv2.undistort(frame, intr, dist, None, dist_intr)
+            
+            orig_imgs.append(frame)
+            im_names.append(os.path.basename(frame_path))
+        H, W, _ = frame.shape
+
+        return im_names, orig_imgs, H, W
