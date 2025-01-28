@@ -116,19 +116,29 @@ class Reader():
                 suc, frame = cam_cap.read()
                 if not suc:
                     raise RuntimeError(f"Couldn't retrieve frame from {cam_name}")
-                frames[cam_name] = frame
-        elif self.type == "image":
-            for view in self.views:
-                idx = np.where(self.cameras[:]['cam_name']==view)[0][0]
-                cam = self.cameras[idx]
-                frame_path = os.path.join(self.path, view, f"{self.curr_frame:08d}.{self.extn}")
-                frame = cv2.cvtColor(cv2.imread(frame_path, cv2.IMREAD_UNCHANGED), cv2.COLOR_BGRA2RGBA)
-
                 if self.undistort:
+                    idx = np.where(self.cameras[:]['cam_name']==cam_name)[0][0]
+                    cam = self.cameras[idx]
                     K, dist = param_utils.get_intr(cam)
                     new_K, roi = param_utils.get_undistort_params(K, dist, (frame.shape[1], frame.shape[0]))
                     frame = param_utils.undistort_image(K, new_K, dist, frame)
-                frame[view] = frame
+                frames[cam_name] = frame
+        elif self.type == "image":
+            for view in self.views:
+                frame_path = os.path.join(self.path, view, f"{self.cur_frame:08d}.{self.extn}")
+
+                if self.extn == "png":
+                    frame = cv2.cvtColor(cv2.imread(frame_path, cv2.IMREAD_UNCHANGED), cv2.COLOR_BGRA2RGBA)
+                else:
+                    frame = cv2.imread(frame_path)
+
+                if self.undistort:
+                    idx = np.where(self.cameras[:]['cam_name']==view)[0][0]
+                    cam = self.cameras[idx]
+                    K, dist = param_utils.get_intr(cam)
+                    new_K, roi = param_utils.get_undistort_params(K, dist, (frame.shape[1], frame.shape[0]))
+                    frame = param_utils.undistort_image(K, new_K, dist, frame)
+                frames[view] = frame
         return frames
 
     def check_timestamp(self):
@@ -144,7 +154,7 @@ class Reader():
         """ Reinitialize the reader """
         if self.type == "video":
             self.release_videos()
-            self.init_videos()
+            self.init_views()
 
         self.cur_frame = 0
 
@@ -155,18 +165,18 @@ class Reader():
             for vid in self.views:
                 cap = cv2.VideoCapture(vid)
                 frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                # frame_count = int(ffmpeg.probe(vid, cmd="ffprobe")["streams"][0]["nb_frames"])
                 self.frame_count = min(self.frame_count, frame_count)
-                cam_name = os.path.basename(vid).split(".")[0]
+                cam_name = vid.split("/")[-2]
                 self.streams[cam_name] = cap
                 
             self.frame_count -= 5 # To account for the last few frames that are corrupted
         elif self.type == "image":
-            if self.end_frame > 0:
-                frame_count = self.end_frame - self.start_frame
-            else:
-                frame_count = len(glob(os.path.join(self.path, self.views[0], f"*.{self.extn}")))
-            self.frame_count = min(self.frame_count, frame_count)
+            for vid in self.views:
+                if self.end_frame > 0:
+                    frame_count = self.end_frame - self.start_frame
+                else:
+                    frame_count = len(glob(os.path.join(self.path, self.views[0], f"*.{self.extn}")))
+                self.frame_count = min(self.frame_count, frame_count)
         else:
             pass
 
@@ -192,18 +202,23 @@ class Reader():
     def get_image_frames(self, view, undistort=False, intr=None, dist_intr=None, dist=None, target_fps=None, target_frames=None):
         orig_imgs = []
         im_names = []
-
+        
         frames = glob(os.path.join(self.path, view, "*.jpg"))
 
-        if self.end_frame:
+        if self.end_frame > 0:
             frames = frames[self.start_frame:self.end_frame]
         else:
             frames = frames[self.start_frame:]
 
         for frame_path in frames:
             frame = cv2.imread(frame_path)
+            
             if undistort:
-                frame = cv2.undistort(frame, intr, dist, None, dist_intr)
+                idx = np.where(self.cameras[:]['cam_name']==view)[0][0]
+                cam = self.cameras[idx]
+                K, dist = param_utils.get_intr(cam)
+                new_K, roi = param_utils.get_undistort_params(K, dist, (frame.shape[1], frame.shape[0]))
+                frame = param_utils.undistort_image(K, new_K, dist, frame)
             
             orig_imgs.append(frame)
             im_names.append(os.path.basename(frame_path))

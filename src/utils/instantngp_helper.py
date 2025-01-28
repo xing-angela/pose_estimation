@@ -53,14 +53,14 @@ def add_ngp_parser(parser):
     parser.add_argument("--optimize_distortion", action="store_true")
     parser.add_argument("--save_segmented_images", action="store_true")
     parser.add_argument("--save_raw_density", action="store_true")
-    parser.add_argument("--align_bounding_box", default=True, action="store_true")
+    parser.add_argument("--align_bounding_box", default=False, action="store_true")
     parser.add_argument(
         "--face_to_cam_path", type=str, default="./metadata/faceToCam.json"
     )
     parser.add_argument("--downscale_factor", type=float, default=0.45)
     parser.add_argument("--face_to_cam", action="store_true")
     parser.add_argument("--cam_faces_path", type=str, default="./data/faces_v2.json")
-    parser.add_argument("--save_dir_name", type=str, default="camera_check")
+    parser.add_argument("--save_dir_name", type=str, default="segmented_ngp")
 
 
 def sort_frames_by_mask_area(all_view_masks, num_frames):

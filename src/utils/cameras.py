@@ -9,7 +9,7 @@ VIDEO_SIDE_CAMERAS = ["brics-odroid-004_cam0", "brics-odroid-005_cam1"] # camera
 VIDEO_BOTTOM_SIDE_CAMERAS = [ # camera at the bottom
                   "brics-odroid-003_cam0",
                   "brics-odroid-003_cam1",
-                  "brics-odroid-004_cam0"
+                  "brics-odroid-004_cam0",
                   "brics-odroid-008_cam0",
                   "brics-odroid-008_cam1",
                   "brics-odroid-009_cam0",
@@ -37,7 +37,7 @@ IMAGE_SIDE_CAMERAS = ["brics-sbc-004_cam0", "brics-sbc-005_cam1"] # camera at th
 IMAGE_BOTTOM_SIDE_CAMERAS = [ # camera at the bottom
                   "brics-sbc-003_cam0",
                   "brics-sbc-003_cam1",
-                  "brics-sbc-004_cam0"
+                  "brics-sbc-004_cam0",
                   "brics-sbc-008_cam0",
                   "brics-sbc-008_cam1",
                   "brics-sbc-009_cam0",
@@ -155,7 +155,7 @@ def get_projections(args, params, cam_names, cam_mapper, easymocap_format=False)
     
     return intrs, np.asarray(projs), dist_intrs, dists, cameras
 
-def get_ngp_cameras(args, params, cam_names, cam_mapper):
+def get_ngp_cameras(args, params, cam_names, cam_mapper, align_bounding_box=False, faces=None):
     cam2idx = {}
     pos = []
     rot = []
@@ -175,59 +175,63 @@ def get_ngp_cameras(args, params, cam_names, cam_mapper):
             pos.append(c2w[:3, 3])
             rot.append(c2w[:3, :3])
             c2ws.append(c2w)
-    extrs = np.array(c2ws)
-    # pos = np.stack(pos)
-    # rot = np.stack(rot)
-    # center = pos.mean(axis=0)
-    # max_dist = cdist(pos, pos).max()
 
-    # # Move center of scene to [0, 0, 0]
-    # pos -= center
+    if align_bounding_box:
+        print("Aligning Bounding Box")
+        pos = np.stack(pos)
+        rot = np.stack(rot)
+        center = pos.mean(axis=0)
+        max_dist = cdist(pos, pos).max()
 
-    # axs = np.zeros((3, 3))
+        # Move center of scene to [0, 0, 0]
+        pos -= center
 
-    # # Rotate to align bounding box
-    # for idx, dir_ in enumerate(
-    #     [
-    #         ["1 0 0", "-1 0 0"],
-    #         ["0 1 0", "0 -1 0"],
-    #         ["0 0 1", "0 0 -1"],
-    #     ]
-    # ):
-    #     avg1 = []
-    #     for camera in faces[dir_[0]]["cameras"]:
-    #         try:
-    #             avg1.append(pos[cam2idx[camera]])
-    #         except:
-    #             pass
+        axs = np.zeros((3, 3))
 
-    #     avg2 = []
-    #     for camera in faces[dir_[1]]["cameras"]:
-    #         try:
-    #             avg2.append(pos[cam2idx[camera]])
-    #         except:
-    #             pass
+        # Rotate to align bounding box
+        for idx, dir_ in enumerate(
+            [
+                ["1 0 0", "-1 0 0"],
+                ["0 1 0", "0 -1 0"],
+                ["0 0 1", "0 0 -1"],
+            ]
+        ):
+            avg1 = []
+            for camera in faces[dir_[0]]["cameras"]:
+                try:
+                    avg1.append(pos[cam2idx[camera]])
+                except:
+                    pass
 
-    #     axs[idx] = np.asarray(avg1).mean(axis=0) - np.asarray(avg2).mean(axis=0)
-    #     axs[idx] /= np.linalg.norm(axs[idx])
+            avg2 = []
+            for camera in faces[dir_[1]]["cameras"]:
+                try:
+                    avg2.append(pos[cam2idx[camera]])
+                except:
+                    pass
 
-    # # Get closest orthormal basis
-    # u, _, v = np.linalg.svd(axs)
-    # orth_axs = u @ v
+            axs[idx] = np.asarray(avg1).mean(axis=0) - np.asarray(avg2).mean(axis=0)
+            axs[idx] /= np.linalg.norm(axs[idx])
 
-    # new_pos = (orth_axs @ pos.T).T
-    # new_rot = orth_axs @ rot
+        # Get closest orthormal basis
+        u, _, v = np.linalg.svd(axs)
+        orth_axs = u @ v
 
-    # # Scale to fit diagonal in unity cube
-    # scale_factor = np.sqrt(2) / max_dist * args.camera_scale
-    # new_pos *= scale_factor
+        new_pos = (orth_axs @ pos.T).T
+        new_rot = orth_axs @ rot
 
-    # # Move center of scene to [0.5, 0.5, 0.5]
-    # new_pos += 0.5
+        # Scale to fit diagonal in unity cube
+        scale_factor = np.sqrt(2) / max_dist * args.camera_scale
+        new_pos *= scale_factor
 
-    # extrs = np.zeros((new_pos.shape[0], 4, 4))
-    # extrs[:, :3, :3] = new_rot
-    # extrs[:, :3, 3] = new_pos
-    # extrs[:, 3, 3] = 1
+        # Move center of scene to [0.5, 0.5, 0.5]
+        new_pos += 0.5
+
+        extrs = np.zeros((new_pos.shape[0], 4, 4))
+        extrs[:, :3, :3] = new_rot
+        extrs[:, :3, 3] = new_pos
+        extrs[:, 3, 3] = 1
+    else:
+        extrs = np.array(c2ws)
 
     return intrs, extrs, dists
